@@ -3,9 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="popup.css">
-    <title>Chrome Addon v3: popup</title>
+    <script src="popup_script.js"></script>
+    <title>PhishGuard</title>
 </head>
 <body>
-    This is the <span class="special-text">HTML</span> body of the addon.
+    <div>
+        <h1 class="header">PhishGuard</h1>
+    </div>
+    <div>
+        <p class="status-message"></p>
+        <ul>
+            <li>Detected Links: 10</li>
+            <li>Suspicious Links: 0</li>
+        </ul>
+    </div>
+    <div>
+        <button class="toggle-protection-button">Toggle Protection (ON)</button>
+        <button class="settings-button">Settings</button>
+    </div>
 </body>
 </html>
