@@ -24,3 +24,39 @@ function changeStatus(bool) {
     status.innerHTML = "⛔️ Site is unsafe";
   }
 }
+
+async function checkCurrentTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (tab && tab.url) {
+    await checkUrl([tab.url]);
+  }
+}
+
+async function checkUrl(urlArray) {
+  try {
+    const response = await fetch("http://127.0.0.1:8000/analyze", {
+      method: "POST",
+      body: JSON.stringify({
+        urls: urlArray,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    const json = await response.json();
+    const matchedUrls = json.matches.map((entry) => entry.threat.url);
+
+    // Check if current URL is in the matched threats
+    const currentUrl = urlArray[0];
+    const isSafe = !matchedUrls.includes(currentUrl);
+
+    changeStatus(isSafe);
+
+    return matchedUrls;
+  } catch (error) {
+    console.error("Error checking URL:", error);
+    changeStatus(false);
+  }
+}
