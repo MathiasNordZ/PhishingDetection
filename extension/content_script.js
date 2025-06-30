@@ -125,6 +125,7 @@ observer.observe(document.body, {
 
 function checkUrls(urlArray) {
   disconnectObserver();
+  console.log("Checking URLs:", urlArray);
   fetch("http://127.0.0.1:8000/analyze", {
     method: "POST",
     body: JSON.stringify({
@@ -137,12 +138,32 @@ function checkUrls(urlArray) {
     .then((response) => response.json())
     .then((json) => {
       const matchedUrls = json.matches.map((entry) => entry.threat.url);
+      console.log("API Response:", json);
       console.log("Matched threat URLs:", matchedUrls);
       highlightMatchedUrls(matchedUrls);
+    })
+    .catch((error) => {
+      console.error("Error checking URLs:", error);
     });
 }
 
 function highlightMatchedUrls(matchedUrls) {
+  console.log("Starting highlight process for URLs:", matchedUrls);
+
+  if (matchedUrls.length === 0) {
+    console.log("No URLs to highlight, exiting");
+    return;
+  }
+
+  const urlRegexes = matchedUrls.map((url) => ({
+    url,
+    pattern: url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  }));
+
+  console.log("Created regex patterns:", urlRegexes);
+
+  // Collect all text nodes first, then process them
+  const textNodes = [];
   const walker = document.createTreeWalker(
     document.body,
     NodeFilter.SHOW_TEXT,
@@ -166,31 +187,65 @@ function highlightMatchedUrls(matchedUrls) {
     false
   );
 
-  const urlRegexes = matchedUrls.map((url) => ({
-    url,
-    regex: new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), // escape regex chars
-  }));
-
   let node;
   while ((node = walker.nextNode())) {
+    textNodes.push(node);
+  }
+
+  console.log(`Collected ${textNodes.length} text nodes to process`);
+
+  let nodesProcessed = 0;
+  let nodesModified = 0;
+
+  // Process collected nodes
+  textNodes.forEach((node) => {
+    // Check if node is still in the document
+    if (!document.contains(node)) {
+      console.log("Skipping detached node");
+      return;
+    }
+
+    nodesProcessed++;
     let originalText = node.nodeValue;
     let replaced = false;
 
-    urlRegexes.forEach(({ url, regex }) => {
+    urlRegexes.forEach(({ url, pattern }) => {
+      const regex = new RegExp(pattern, "g");
       if (regex.test(originalText)) {
+        console.log(
+          `Found match for "${url}" in text:`,
+          originalText.substring(0, 100) + "..."
+        );
         replaced = true;
+        const replaceRegex = new RegExp(pattern, "g");
         originalText = originalText.replace(
-          regex,
-          `<span class="url-highlight" style="background-color: red !important; color: white; font-weight: bold;" title="CAUTION! Link has been flagged as a threat. DO NOT CLICK!">${url}</span>`
+          replaceRegex,
+          `<span style="background-color: red; color: white; font-weight: bold;" title="CAUTION! The following link is detected as malicious. DO NOT CLICK!">${url}</span>`
         );
       }
     });
 
     if (replaced) {
-      const span = document.createElement("span");
-      span.innerHTML = originalText;
-      node.parentNode.replaceChild(span, node);
+      nodesModified++;
+      console.log(
+        `Replacing node content. Original length: ${node.nodeValue.length}, New length: ${originalText.length}`
+      );
+
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = originalText;
+      const fragment = document.createDocumentFragment();
+
+      while (tempDiv.firstChild) {
+        fragment.appendChild(tempDiv.firstChild);
+      }
+
+      node.parentNode.replaceChild(fragment, node);
+      console.log("Node replaced successfully");
     }
-  }
+  });
+
+  console.log(
+    `Highlighting complete. Processed ${nodesProcessed} text nodes, modified ${nodesModified} nodes`
+  );
   reconnectObserver();
 }
