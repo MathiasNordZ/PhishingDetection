@@ -52,13 +52,55 @@ function getAllUrls() {
     }
   });
 
+  // 3. Collect text that contains http or https.
+  const urlRegex = /https?:\/\/[^\s"'<>]+/g;
+  allElements.forEach((el) => {
+    const style = window.getComputedStyle(el);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.opacity === "0"
+    ) {
+      return; // Skip invisible
+    }
+
+    const matches = el.innerText.match(urlRegex);
+    if (matches) {
+      matches.forEach((match) => urls.add(match));
+    }
+  });
+
   const urlArray = Array.from(urls);
   console.log("Found URLs:", urlArray);
 
   // Optionally send to background/popup
   chrome.runtime.sendMessage({ type: "CLICKABLE_LINKS", data: urlArray });
 
-  return urlArray;
+  console.log("Checking URLS to GoogleAPI");
+  checkUrls(urlArray);
+}
+
+// Declare observer at the top so it's accessible everywhere
+let observer = null;
+
+// Now assign it properly
+observer = new MutationObserver(() => {
+  getAllUrls();
+});
+
+function disconnectObserver() {
+  if (observer) {
+    observer.disconnect();
+  }
+}
+
+function reconnectObserver() {
+  if (observer) {
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
 }
 
 // Helper to extract URLs from inline onclick handlers
@@ -76,12 +118,79 @@ if (document.readyState !== "loading") {
   getAllUrls();
 }
 
-// Observe SPA or dynamically-loaded changes
-const observer = new MutationObserver(() => {
-  getAllUrls();
-});
-
 observer.observe(document.body, {
   childList: true,
   subtree: true,
 });
+
+function checkUrls(urlArray) {
+  disconnectObserver();
+  fetch("http://127.0.0.1:8000/analyze", {
+    method: "POST",
+    body: JSON.stringify({
+      urls: urlArray,
+    }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  })
+    .then((response) => response.json())
+    .then((json) => {
+      const matchedUrls = json.matches.map((entry) => entry.threat.url);
+      console.log("Matched threat URLs:", matchedUrls);
+      highlightMatchedUrls(matchedUrls);
+    });
+}
+
+function highlightMatchedUrls(matchedUrls) {
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: function (node) {
+        const parent = node.parentNode;
+        const style = window.getComputedStyle(parent);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.opacity === "0" ||
+          ["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "IFRAME"].includes(
+            parent.tagName
+          )
+        ) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+    false
+  );
+
+  const urlRegexes = matchedUrls.map((url) => ({
+    url,
+    regex: new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), // escape regex chars
+  }));
+
+  let node;
+  while ((node = walker.nextNode())) {
+    let originalText = node.nodeValue;
+    let replaced = false;
+
+    urlRegexes.forEach(({ url, regex }) => {
+      if (regex.test(originalText)) {
+        replaced = true;
+        originalText = originalText.replace(
+          regex,
+          `<span class="url-highlight" style="background-color: red !important; color: white; font-weight: bold;" title="CAUTION! Link has been flagged as a threat. DO NOT CLICK!">${url}</span>`
+        );
+      }
+    });
+
+    if (replaced) {
+      const span = document.createElement("span");
+      span.innerHTML = originalText;
+      node.parentNode.replaceChild(span, node);
+    }
+  }
+  reconnectObserver();
+}

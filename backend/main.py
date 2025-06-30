@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from dotenv import load_dotenv
 from model.url import UrlRequest
+from fastapi.middleware.cors import CORSMiddleware
 from logic.googleCheck import checkGoogleApi
 
 load_dotenv()
@@ -8,7 +9,15 @@ app = FastAPI()
 
 @app.post("/analyze")
 async def analyzeData(data: UrlRequest):
-    return checkGoogleApi(data.url)
+    return checkGoogleApi(data.urls)
+  
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
       
 """
   urlList = [
