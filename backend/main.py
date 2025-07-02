@@ -3,13 +3,21 @@ from dotenv import load_dotenv
 from model.url import UrlRequest
 from fastapi.middleware.cors import CORSMiddleware
 from logic.googleCheck import checkGoogleApi
+import redis
 
 load_dotenv()
 app = FastAPI()
+redisClient = redis.Redis(host="localhost", port=6379, db=0)
 
 @app.post("/analyze")
 async def analyzeData(data: UrlRequest):
-    return checkGoogleApi(data.urls)
+    try:
+        if not data.urls:
+            return {"matches": []}
+        return checkGoogleApi(data.urls, redisClient=redisClient)
+    except Exception as e:
+        print(f"Analyze failed: {e}")
+        return {"matches": [], "error": str(e)}
   
 app.add_middleware(
     CORSMiddleware,
