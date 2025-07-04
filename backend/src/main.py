@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from dotenv import load_dotenv
-from model.url import UrlRequest
+from src.model.url import UrlRequest
 from fastapi.middleware.cors import CORSMiddleware
-from logic.googleCheck import checkGoogleApi
+from backend.src.logic.google_check import checkGoogleApi
 import redis
 
 load_dotenv()
