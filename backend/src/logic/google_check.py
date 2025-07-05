@@ -1,88 +1,89 @@
-import os
-import requests as req
-import json
-from datetime import timedelta
+# check_google_api.py
 
-def checkGoogleApi(urls: list[str], redisClient = None):
-    apiKey = os.getenv("API_KEY")
-    if not apiKey:
+import os
+import json
+import requests
+from datetime import timedelta
+from typing import List, Dict, Optional
+
+def check_google_api(urls: List[str], redis_client: Optional[object] = None) -> Dict[str, dict]:
+    api_key = os.getenv("API_KEY")
+    if not api_key:
         print("API key not found.")
         return {}
-    
+
     results = {}
-    urlsToCheck = []
-    
-    # Handle caching if Redis is available
-    if redisClient:
+    urls_to_check = []
+
+    # Use Redis cache if available
+    if redis_client:
         for url in urls:
-            cacheKey = f"urlAnalysis:{url}"
-            cachedResult = redisClient.get(cacheKey)
-            
-            if cachedResult:
+            cache_key = f"url_analysis:{url}"
+            cached = redis_client.get(cache_key)
+
+            if cached:
                 try:
-                    results[url] = json.loads(cachedResult)
+                    results[url] = json.loads(cached)
                     print(f"Cache hit for: {url}")
                 except json.JSONDecodeError:
-                    urlsToCheck.append(url)
+                    urls_to_check.append(url)
             else:
-                urlsToCheck.append(url)
+                urls_to_check.append(url)
     else:
-        urlsToCheck = urls
-        
-    if not urlsToCheck:
+        urls_to_check = urls
+
+    if not urls_to_check:
         return results
 
-    # Make API request
-    apiUrl = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={apiKey}"
-    requestBody = {
+    api_url = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
+    payload = {
         "client": {
             "clientId": "PhishingDetection",
             "clientVersion": "1.5.2"
         },
         "threatInfo": {
             "threatTypes": [
-                "MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"
+                "MALWARE", "SOCIAL_ENGINEERING",
+                "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"
             ],
             "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": url} for url in urlsToCheck]
+            "threatEntries": [{"url": url} for url in urls_to_check]
         }
     }
 
-    res = req.post(apiUrl, headers={"Content-Type": "application/json"}, data=json.dumps(requestBody))
-    
-    print("Status Code:", res.status_code)
-    
     try:
-        data = res.json()
+        response = requests.post(
+            api_url,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload)
+        )
+        print("Status Code:", response.status_code)
+
+        data = response.json()
         print("Response JSON:", json.dumps(data, indent=2))
-        
-        # Process each URL
-        for url in urlsToCheck:
-            urlResult = {"url": url, "safe": True}
-            
-            # Check if this URL has threats
-            if "matches" in data:
-                for match in data["matches"]:
-                    if match["threat"]["url"] == url:
-                        urlResult["safe"] = False
-                        urlResult["threat"] = match
-                        print(f"THREAT FOUND: {url}")
-                        break
-            
-            # Cache result if Redis available
-            if redisClient:
-                cacheKey = f"urlAnalysis:{url}"
-                redisClient.setex(
-                    cacheKey,
+
+        for url in urls_to_check:
+            url_result = {"url": url, "safe": True}
+
+            for match in data.get("matches", []):
+                if match.get("threat", {}).get("url") == url:
+                    url_result["safe"] = False
+                    url_result["threat"] = match
+                    print(f"THREAT FOUND: {url}")
+                    break
+
+            if redis_client:
+                redis_client.setex(
+                    f"url_analysis:{url}",
                     timedelta(hours=1),
-                    json.dumps(urlResult)
+                    json.dumps(url_result)
                 )
-            
-            results[url] = urlResult
-            
-    except ValueError:
-        print("Invalid JSON returned:", res.text)
+
+            results[url] = url_result
+
+    except (ValueError, json.JSONDecodeError) as e:
+        print("Invalid JSON returned:", e)
         return {}
 
     return results
